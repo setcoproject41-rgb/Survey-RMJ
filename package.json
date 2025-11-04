@@ -1,10 +1,22 @@
 {
+  "name": "survey-rmj-bot",
+  "version": "1.0.0",
+  "description": "Telegram Bot for Survey Data Recap",
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start"
+    // TIDAK ADA KOMA SETELAH BARIS TERAKHIR DI SINI
+  },
   "dependencies": {
     "next": "terbaru",
     "react": "terbaru",
     "react-dom": "terbaru",
+    "telegraf": "terbaru",
     "@supabase/supabase-js": "terbaru",
-    "telegraf": "terbaru"
-    // ... dependencies lainnya
-  }
+    "node-fetch": "terbaru"
+    // TIDAK ADA KOMA SETELAH BARIS TERAKHIR DI SINI
+  },
+  "license": "ISC"
+  // TIDAK ADA KOMA SETELAH BARIS TERAKHIR DI SINI (sebelum })
 }
