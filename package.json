@@ -1,19 +1,23 @@
 {
   "name": "survey-rmj-bot",
   "version": "1.0.0",
-  "description": "Telegram Bot for Survey Data Recap",
+  "description": "Telegram Bot for Survey Data Recap using Vercel and Supabase.",
   "scripts": {
     "dev": "next dev",
     "build": "next build",
-    "start": "next start"
+    "start": "next start",
+    "lint": "next lint"
   },
   "dependencies": {
-    "next": "terbaru",
-    "react": "terbaru",
-    "react-dom": "terbaru",
-    "telegraf": "terbaru",
-    "@supabase/supabase-js": "terbaru",
-    "node-fetch": "terbaru"
+    "@supabase/supabase-js": "^2.39.8",
+    "next": "^14.1.0",
+    "node-fetch": "^3.3.2",
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0",
+    "telegraf": "^4.16.1"
   },
-  "license": "ISC"
+  "devDependencies": {
+    "eslint": "^8",
+    "eslint-config-next": "14.1.0"
+  }
 }
