@@ -1,0 +1,10 @@
+{
+  "dependencies": {
+    "next": "terbaru",
+    "react": "terbaru",
+    "react-dom": "terbaru",
+    "@supabase/supabase-js": "terbaru",
+    "telegraf": "terbaru"
+    // ... dependencies lainnya
+  }
+}
