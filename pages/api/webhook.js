@@ -1,14 +1,14 @@
-// pages/api/webhook.js
-
 import { createClient } from '@supabase/supabase-js';
 import { Telegraf, Markup } from 'telegraf';
+import fetch from 'node-fetch'; // Pastikan 'node-fetch' sudah terinstal di package.json
 
-// --- INISIALISASI DARI ENVIRONMENT VARIABLES ---
+// --- 1. INISIALISASI DARI ENVIRONMENT VARIABLES ---
 const SUPABASE_URL = process.env.SUPABASE_URL;
 const SUPABASE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY; 
 const BOT_TOKEN = process.env.BOT_TOKEN;
 const STORAGE_BUCKET = 'eviden-bot'; // Ganti dengan nama bucket Anda
 
+// Cek Kunci (akan throw error jika environment variable hilang)
 if (!SUPABASE_URL || !SUPABASE_KEY || !BOT_TOKEN) {
   throw new Error('Environment variables SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, and BOT_TOKEN must be set.');
 }
@@ -16,22 +16,7 @@ if (!SUPABASE_URL || !SUPABASE_KEY || !BOT_TOKEN) {
 const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
 const bot = new Telegraf(BOT_TOKEN);
 
-// --- HANDLER UTAMA VERCEL ---
-export default async (req, res) => {
-  if (req.method === 'POST') {
-    // Memproses webhook dari Telegram
-    await bot.handleUpdate(req.body);
-    res.status(200).send('OK');
-  } else {
-    // Endpoint selain POST (hanya untuk pengujian)
-    res.status(200).json({ status: 'Bot running, waiting for webhook...' });
-  }
-};
-// pages/api/webhook.js (lanjutan)
-
-// ------------------------------------
-// FUNGSI UTILITY SESI SUPABASE
-// ------------------------------------
+// --- 2. FUNGSI UTILITY SESI SUPABASE ---
 
 // Mengambil sesi berdasarkan user_id
 async function getSession(userId) {
@@ -41,7 +26,6 @@ async function getSession(userId) {
     .eq('user_id', userId)
     .single();
   
-  // Jika sesi tidak ditemukan atau error (selain 'not found'), kembalikan sesi default
   if (error && error.code !== 'PGRST116') { // PGRST116 = tidak ditemukan (not found)
     console.error('Error fetching session:', error);
     return { user_id: userId, state: 'start', data: {} };
@@ -58,14 +42,61 @@ async function saveSession(session) {
       user_id: session.user_id, 
       state: session.state, 
       data: session.data 
-    }, { onConflict: 'user_id' }); // Gunakan upsert untuk insert/update
+    }, { onConflict: 'user_id' }); 
   
   if (error) {
     console.error('Error saving session:', error);
   }
 }
-// pages/api/webhook.js (lanjutan)
 
+// --- 3. UTILITY: UPLOAD FILE KE SUPABASE STORAGE ---
+
+async function uploadFileToSupabase(ctx, session) {
+  const fileId = ctx.message.photo.pop().file_id; 
+  
+  // 1. Dapatkan URL File Telegram
+  const fileLink = await ctx.telegram.getFileLink(fileId);
+  const fileUrl = fileLink.href;
+
+  // 2. Tentukan Path File Terstruktur
+  const segmenNama = session.data.segmentasi_nama;
+  const designatorKode = session.data.designator_id; 
+  const fileName = `${Date.now()}_${ctx.from.id}.jpg`;
+  
+  // Path: BUCKET/EVIDENCE_FOLDER/JT.01 - JT.02/DC-OF-SM-48D/timestamp_userid.jpg
+  const storagePath = `EVIDENCE_FOLDER/${segmenNama}/${designatorKode}/${fileName}`;
+
+  // 3. Unduh File dari Telegram
+  const response = await fetch(fileUrl);
+  if (!response.ok) throw new Error(`Failed to fetch photo from Telegram: ${response.statusText}`);
+  
+  const fileBuffer = await response.arrayBuffer(); 
+
+  // 4. Unggah ke Supabase Storage
+  const { error } = await supabase.storage
+    .from(STORAGE_BUCKET)
+    .upload(storagePath, Buffer.from(fileBuffer), {
+      contentType: 'image/jpeg',
+      upsert: false
+    });
+
+  if (error) {
+    throw new Error('Supabase Storage Error: ' + error.message);
+  }
+
+  // 5. Kembalikan URL Publik
+  const { data: publicUrlData } = supabase.storage
+      .from(STORAGE_BUCKET)
+      .getPublicUrl(storagePath);
+
+  return publicUrlData.publicUrl; 
+}
+
+
+// --- 4. LOGIKA BOT (HANDLER/LISTENER) ---
+// HARUS DI ATAS export default AGAR LISTENER DIDAFTARKAN!
+
+// Perintah /lapor (TAHAP 1: Pilih Segmentasi)
 bot.command('lapor', async (ctx) => {
   const userId = ctx.from.id;
   const session = await getSession(userId);
@@ -94,15 +125,15 @@ bot.command('lapor', async (ctx) => {
     parse_mode: 'Markdown'
   });
 });
-// pages/api/webhook.js (lanjutan)
 
+// Callback Query (TAHAP 2: Pilih Designator & Lanjut ke Foto)
 bot.on('callback_query', async (ctx) => {
   const userId = ctx.from.id;
   const session = await getSession(userId);
   const data = ctx.callbackQuery.data;
 
   // Hentikan proses jika bukan dari bot ini
-  if (!data || !data.startsWith('SEGMENTASI_') && !data.startsWith('DESIGNATOR_')) {
+  if (!data || (!data.startsWith('SEGMENTASI_') && !data.startsWith('DESIGNATOR_'))) {
     return ctx.answerCbQuery();
   }
 
@@ -111,10 +142,10 @@ bot.on('callback_query', async (ctx) => {
     const segmentasiId = parseInt(data.replace('SEGMENTASI_', ''), 10);
     const segmenData = (await supabase.from('segmentasi_jalur').select('nama_segmen').eq('id', segmentasiId).single()).data;
 
-    // Ambil Designator (Designator adalah TEXT/Kode, bukan INT)
+    // Ambil Designator
     const { data: designator, error } = await supabase
       .from('designator')
-      .select('id, kode_designator, uraian_pekerjaan');
+      .select('id, kode_designator, uraian_pekerjaan'); // Sesuaikan dengan skema Anda
 
     if (error || !designator.length) {
       ctx.editMessageText('⚠️ Error: Data designator tidak ditemukan.');
@@ -156,55 +187,8 @@ bot.on('callback_query', async (ctx) => {
 
   ctx.answerCbQuery();
 });
-// pages/api/webhook.js (lanjutan)
 
-// ------------------------------------
-// UTILITY: UPLOAD FILE KE SUPABASE STORAGE
-// ------------------------------------
-
-async function uploadFileToSupabase(ctx, session) {
-  const fileId = ctx.message.photo.pop().file_id; // Ambil resolusi foto tertinggi
-  
-  // 1. Dapatkan URL File Telegram
-  const fileLink = await ctx.telegram.getFileLink(fileId);
-  const fileUrl = fileLink.href;
-
-  // 2. Tentukan Path File Terstruktur
-  const segmenNama = session.data.segmentasi_nama; // Cth: 'JT.01 - JT.02'
-  const designatorKode = session.data.designator_id; // Cth: 'DC-OF-SM-48D'
-  const fileName = `${Date.now()}_${ctx.from.id}.jpg`;
-  
-  // Format Path: EVIDENCE_FOLDER/JT.01 - JT.02/DC-OF-SM-48D/timestamp_userid.jpg
-  const storagePath = `EVIDENCE_FOLDER/${segmenNama}/${designatorKode}/${fileName}`;
-
-  // 3. Unduh File dari Telegram
-  const fetch = await import('node-fetch').then(mod => mod.default);
-  const response = await fetch(fileUrl);
-  if (!response.ok) throw new Error(`Failed to fetch photo from Telegram: ${response.statusText}`);
-  
-  const fileBuffer = await response.arrayBuffer(); // Dapatkan data biner (buffer)
-
-  // 4. Unggah ke Supabase Storage
-  const { data, error } = await supabase.storage
-    .from(STORAGE_BUCKET)
-    .upload(storagePath, Buffer.from(fileBuffer), {
-      contentType: 'image/jpeg',
-      upsert: false
-    });
-
-  if (error) {
-    throw new Error('Supabase Storage Error: ' + error.message);
-  }
-
-  // 5. Kembalikan URL Publik (jika bucket public) atau Path Storage
-  const { data: publicUrlData } = supabase.storage
-      .from(STORAGE_BUCKET)
-      .getPublicUrl(storagePath);
-
-  return publicUrlData.publicUrl; 
-}
-// pages/api/webhook.js (lanjutan)
-
+// Menangani Foto (TAHAP 3: Upload ke Supabase & Lanjut Keterangan)
 bot.on('photo', async (ctx) => {
   const userId = ctx.from.id;
   const session = await getSession(userId);
@@ -233,8 +217,8 @@ bot.on('photo', async (ctx) => {
     ctx.reply('❌ Terjadi kesalahan saat mengunggah foto. Silakan coba lagi.');
   }
 });
-// pages/api/webhook.js (lanjutan)
 
+// Menangani Teks (TAHAP 4: Simpan Keterangan & Lanjut Lokasi)
 bot.on('text', async (ctx) => {
   const userId = ctx.from.id;
   const session = await getSession(userId);
@@ -251,10 +235,9 @@ bot.on('text', async (ctx) => {
       '✅ Keterangan tersimpan.\n\n➡️ **TAHAP 5: Kirim Lokasi** (Gunakan fitur "Share Location" di Telegram).'
     );
   }
-  // Tidak ada else if lain agar pengguna tetap bisa chat biasa saat tidak dalam sesi
 });
-// pages/api/webhook.js (lanjutan)
 
+// Menangani Lokasi (TAHAP 5: Finalisasi & INSERT ke rekap_data)
 bot.on('location', async (ctx) => {
   const userId = ctx.from.id;
   const session = await getSession(userId);
@@ -298,3 +281,16 @@ bot.on('location', async (ctx) => {
     '\n\nKetik /lapor untuk membuat laporan baru.'
   );
 });
+
+
+// --- 5. HANDLER UTAMA VERCEL ---
+export default async (req, res) => {
+  if (req.method === 'POST') {
+    // Memproses webhook dari Telegram setelah semua listeners didefinisikan
+    await bot.handleUpdate(req.body);
+    res.status(200).send('OK');
+  } else {
+    // Endpoint selain POST (untuk pengujian)
+    res.status(200).json({ status: 'Bot running, waiting for webhook...' });
+  }
+};
