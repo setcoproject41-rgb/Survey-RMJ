@@ -6,7 +6,6 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start"
-    // TIDAK ADA KOMA SETELAH BARIS TERAKHIR DI SINI
   },
   "dependencies": {
     "next": "terbaru",
@@ -15,8 +14,6 @@
     "telegraf": "terbaru",
     "@supabase/supabase-js": "terbaru",
     "node-fetch": "terbaru"
-    // TIDAK ADA KOMA SETELAH BARIS TERAKHIR DI SINI
   },
   "license": "ISC"
-  // TIDAK ADA KOMA SETELAH BARIS TERAKHIR DI SINI (sebelum })
 }
